@@ -87,7 +87,13 @@ footer .dis{max-width:640px;margin:12px auto 0;padding:12px 16px;background:rgba
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SB_URL = 'https://qldfmpfcoxxwgctlfeua.supabase.co';
+const SB_KEY = 'sb_publishable_nemB3Smiq4Bmtm_6SpIvig_T-9BJhvT';
+let sb = null;
+try { sb = window.supabase.createClient(SB_URL, SB_KEY); } catch(e) { console.warn('Supabase unavailable, using local'); }
+
 const ADMINS = ['Kokoro','林科森'];
 let posts = JSON.parse(localStorage.getItem('mb_posts')||'null') || [{
   id:1, title:"一次穿越时空的聚会！！！", date:"2009-01-14 18:27",
@@ -109,7 +115,23 @@ function save(){
 }
 function isAdmin(){return user && ADMINS.includes(user)}
 
-function showList(){
+async function showList(){
+  // 优先从 Supabase 拉文章
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('posts').select('*').order('published_at', { ascending: sort==='oldest' });
+      if (!error && data && data.length) {
+        posts = data.map(p => ({
+          id: p.id,
+          title: p.title,
+          date: new Date(p.published_at).toLocaleString('zh-CN'),
+          excerpt: p.excerpt || '',
+          content: p.content
+        }));
+      }
+    } catch(e) { console.warn('SB load failed', e); }
+  }
+
   let list = posts;
   if(filter){
     list = posts.filter(p=>{
@@ -254,7 +276,7 @@ function updateAuth(){
 }
 
 if(localStorage.getItem('miaobo_seen')) document.getElementById('initModal').style.display='none';
-setTimeout(showList, 30);
+setTimeout(() => { showList().catch(()=>showList); }, 30);
 </script>
 </body>
 </html>
