@@ -168,15 +168,32 @@ async function showList(){
   updateAuth();
 }
 
-function showArticle(id){
+async function showArticle(id){
   curId = id;
-  const p = posts.find(x=>x.id===id);
+  let p = posts.find(x=>x.id===id);
+  if (sb && !p) {
+    try {
+      const { data } = await sb.from('posts').select('*').eq('id', id).single();
+      if (data) p = { id: data.id, title: data.title, date: new Date(data.published_at).toLocaleString('zh-CN'), content: data.content, excerpt: data.excerpt };
+    } catch(e){}
+  }
   if(!p) return showList();
+
+  // 拉评论和画线
+  let cs = comments.filter(c=>c.postId===id);
+  let hs = highlights.filter(h=>h.postId===id);
+  if (sb) {
+    try {
+      const { data: cdata } = await sb.from('comments').select('*, profiles(username)').eq('post_id', id).order('created_at');
+      if (cdata) cs = cdata.map(c => ({ id: c.id, postId: id, user: c.profiles?.username || '用户', text: c.content, time: new Date(c.created_at).toLocaleString('zh-CN'), likes: c.likes_count||0 }));
+      const { data: hdata } = await sb.from('highlights').select('*, profiles(username)').eq('post_id', id);
+      if (hdata) hs = hdata.map(h => ({ id: h.id, postId: id, text: h.selected_text, comment: h.comment, user: h.profiles?.username || '用户', likes: h.likes_count||0 }));
+    } catch(e) { console.warn(e); }
+  }
+
   let html = p.content;
-  highlights.filter(h=>h.postId===id).forEach(h=>{
-    if(html.includes(h.text)) html = html.replace(h.text, `<span class="highlight">${h.text}</span>`);
-  });
-  const cs = comments.filter(c=>c.postId===id);
+  hs.forEach(h => { if(html.includes(h.text)) html = html.replace(h.text, `<span class="highlight">${h.text}</span>`); });
+
   document.getElementById('main').innerHTML = `
     <div style="margin-bottom:12px;font-size:14px"><a href="#" onclick="showList();return false">← 返回</a></div>
     <h1 style="font-size:24px;margin-bottom:8px">${p.title}</h1>
@@ -226,10 +243,34 @@ function savePost(id){
   p.excerpt=p.content.replace(/<[^>]+>/g,'').slice(0,50)+'...';
   save(); showArticle(id);
 }
-function addC(){
+async function addC(){
   const t=document.getElementById('nc').value.trim(); if(!t) return;
+  if (sb) {
+    try {
+      const { data: { user: u } } = await sb.auth.getUser();
+      if (u) {
+        await sb.from('comments').insert({ post_id: curId, user_id: u.id, content: t });
+        return showArticle(curId);
+      }
+    } catch(e) { console.warn(e); }
+  }
   comments.push({id:Date.now(),postId:curId,user,text:t,time:new Date().toLocaleString('zh-CN'),likes:0});
   save(); showArticle(curId);
+}
+async function addHighlight(){
+  const c=document.getElementById('hlInput').value.trim();
+  if(!c||!selText) return;
+  if (sb) {
+    try {
+      const { data: { user: u } } = await sb.auth.getUser();
+      if (u) {
+        await sb.from('highlights').insert({ post_id: curId, user_id: u.id, selected_text: selText, comment: c });
+        closeSheet(); return showArticle(curId);
+      }
+    } catch(e) { console.warn(e); }
+  }
+  highlights.push({id:Date.now(),postId:curId,text:selText,comment:c,user,likes:0});
+  save(); closeSheet(); showArticle(curId);
 }
 function likeC(id){ const c=comments.find(x=>x.id===id); if(c){c.likes=(c.likes||0)+1;save();showArticle(curId)} }
 function replyC(id){ const t=prompt('回复：'); if(!t) return; comments.push({id:Date.now(),postId:curId,user,text:'回复：'+t,time:new Date().toLocaleString('zh-CN'),likes:0}); save(); showArticle(curId); }
@@ -261,9 +302,37 @@ function showLogin(){
 }
 let reg=false;
 function tog(){ reg=!reg; document.getElementById('at').textContent=reg?'注册':'登录'; document.getElementById('ah').innerHTML=reg?'已有账号？<a href="#" onclick="tog();return false">去登录</a>':'还没有账号？<a href="#" onclick="tog();return false">去注册</a><br>管理员 Kokoro / 林科森 密码 admin'; }
-function doAuth(){
+async function doAuth(){
   const u=document.getElementById('un').value.trim(), p=document.getElementById('pw').value;
   if(!u||!p) return alert('请填写');
+  const email = u + '@miaobo.local';
+
+  if (sb) {
+    try {
+      if (reg) {
+        const { data, error } = await sb.auth.signUp({ email, password: p, options: { data: { username: u } } });
+        if (error) return alert(error.message);
+        if (data.user) {
+          await sb.from('profiles').upsert({ id: data.user.id, username: u, is_admin: ADMINS.includes(u) });
+        }
+        alert('注册成功，请登录');
+        reg = false;
+        showLogin();
+        return;
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email, password: p });
+        if (error) return alert('用户名或密码错误');
+        user = u;
+        localStorage.setItem('mb_user', u);
+        showList();
+        return;
+      }
+    } catch(e) {
+      console.warn('SB auth failed, fallback local', e);
+    }
+  }
+
+  // 本地备用
   let us=JSON.parse(localStorage.getItem('mb_users')||'{}');
   if(!us.Kokoro) us.Kokoro='admin';
   if(!us['林科森']) us['林科森']='admin';
@@ -272,7 +341,11 @@ function doAuth(){
   user=u; localStorage.setItem('mb_user',u); showList();
 }
 function updateAuth(){
-  document.getElementById('auth').innerHTML = user ? `${user} <a href="#" onclick="user=null;localStorage.removeItem('mb_user');showList();return false">退出</a>` : `<a href="#" onclick="showLogin();return false">登录</a>`;
+  document.getElementById('auth').innerHTML = user ? `${user} <a href="#" onclick="logout();return false">退出</a>` : `<a href="#" onclick="showLogin();return false">登录</a>`;
+}
+async function logout(){
+  if (sb) { try { await sb.auth.signOut(); } catch(e){} }
+  user=null; localStorage.removeItem('mb_user'); showList();
 }
 
 if(localStorage.getItem('miaobo_seen')) document.getElementById('initModal').style.display='none';
