@@ -351,7 +351,7 @@ footer .disclaimer {
   <div class="modal">
     <h3>苗博</h3>
     <p>一次穿越时空的聚会<br>谢苗早年博客考古站<br><br>制作：Kokoro | 林科森<br><br>本站为粉丝向，非官方、不盈利，著作权归谢苗。如有侵权请联系删除。</p>
-    <button onclick="closeInit()">开始阅读</button>
+    <button onclick="document.getElementById('initModal').style.display='none';localStorage.setItem('miaobo_init_seen','1');">开始阅读</button>
   </div>
 </div>
 
@@ -367,9 +367,22 @@ footer .disclaimer {
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// 先定义关闭弹窗，保证一定能用
+function closeInit() {
+  const modal = document.getElementById('initModal');
+  if (modal) modal.style.display = 'none';
+  localStorage.setItem('miaobo_init_seen', '1');
+  if (typeof renderList === 'function') renderList();
+}
+
 const SUPABASE_URL = 'https://qldfmpfcoxxwgctlfeua.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nemB3Smiq4Bmtm_6SpIvig_T-9BJhvT';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let supabase;
+try {
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+} catch (e) {
+  console.error('Supabase init failed', e);
+}
 
 // ... rest of script will be updated step by step
 
@@ -436,12 +449,22 @@ function setSort(s) {
   renderList();
 }
 
-function showArticle(id) {
-  const p = posts.find(x => x.id === id);
+async function showArticle(id) {
+  const { data: p, error } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !p) {
+    alert('文章加载失败');
+    return;
+  }
+
   document.getElementById('main').innerHTML = `
     <div class="article-header">
       <h1>${p.title}</h1>
-      <div class="meta">${p.date} ${isAdmin() ? `<a href="#" onclick="editArticle(${p.id});return false;" style="margin-left:12px;">编辑</a>` : ''}</div>
+      <div class="meta">${new Date(p.published_at).toLocaleString('zh-CN')} ${isAdmin() ? `<a href="#" onclick="editArticle(${p.id});return false;" style="margin-left:12px;">编辑</a>` : ''}</div>
     </div>
     <div class="article-content" id="articleContent" onmouseup="onSelect()" ontouchend="onSelect()">
       ${p.content}
@@ -644,16 +667,16 @@ async function logout() {
   renderList();
 }
 
-function closeInit() {
-  document.getElementById('initModal').style.display = 'none';
-  localStorage.setItem('miaobo_init_seen', '1');
-}
-
 // Init
 if (localStorage.getItem('miaobo_init_seen')) {
   document.getElementById('initModal').style.display = 'none';
 }
-renderList();
+try {
+  if (typeof renderList === 'function') renderList();
+} catch (e) {
+  console.error(e);
+  document.getElementById('main').innerHTML = '<p>页面加载出错，请刷新重试</p>';
+}
 </script>
 </body>
 </html>
