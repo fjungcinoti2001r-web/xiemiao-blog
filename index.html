@@ -192,7 +192,9 @@ async function showArticle(id){
   }
 
   let html = p.content;
-  hs.forEach(h => { if(html.includes(h.text)) html = html.replace(h.text, `<span class="highlight">${h.text}</span>`); });
+  hs.forEach(h => { 
+    if(html.includes(h.text)) html = html.replace(h.text, `<span class="highlight" onclick="showHLComments('${h.text.replace(/'/g,"\\'")}')">${h.text}</span>`); 
+  });
 
   document.getElementById('main').innerHTML = `
     <div style="margin-bottom:12px;font-size:14px"><a href="#" onclick="showList();return false">← 返回</a></div>
@@ -273,7 +275,19 @@ async function addHighlight(){
   save(); closeSheet(); showArticle(curId);
 }
 function likeC(id){ const c=comments.find(x=>x.id===id); if(c){c.likes=(c.likes||0)+1;save();showArticle(curId)} }
-function replyC(id){ const t=prompt('回复：'); if(!t) return; comments.push({id:Date.now(),postId:curId,user,text:'回复：'+t,time:new Date().toLocaleString('zh-CN'),likes:0}); save(); showArticle(curId); }
+function showHLComments(text){
+  const related = highlights.filter(h => h.text === text && h.postId === curId);
+  // 也从当前渲染的 hs 里找（简化）
+  alert('这段文字的评论：\n' + (related.map(h => `${h.user}：${h.comment}（♡${h.likes||0}）`).join('\n') || '暂无其他评论'));
+}
+function replyC(id){ 
+  const target = comments.find(c => c.id === id);
+  const name = target ? target.user : '某用户';
+  const t=prompt(`回复 ${name}：`); 
+  if(!t) return; 
+  comments.push({id:Date.now(),postId:curId,user,text:`回复 ${name}：${t}`,time:new Date().toLocaleString('zh-CN'),likes:0,parent:id}); 
+  save(); showArticle(curId); 
+}
 
 function closeSheet(){ document.getElementById('overlay').style.display='none'; document.getElementById('sheet').classList.remove('show'); document.getElementById('hlInput').value=''; }
 function addHighlight(){
@@ -283,6 +297,33 @@ function addHighlight(){
   save(); closeSheet(); showArticle(curId);
 }
 function makeExcerpt(){
+  if(!selText) return;
+  const p=posts.find(x=>x.id===curId);
+  const d=document.createElement('div');
+  d.innerHTML=`<div id="excerptCard" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='excerptCard')this.remove()">
+    <div id="cardInner" style="background:#faf6f1;padding:32px 24px;border-radius:12px;max-width:320px;text-align:center;user-select:none">
+      <div style="font-size:16px;line-height:1.8;margin-bottom:16px">“${selText}”</div>
+      <div style="font-size:13px;color:#8a8075">/ ${p.title}<br>${user||'匿名'} 截图<br>著作权归谢苗</div>
+      <div style="margin-top:12px;font-size:12px;color:#aaa">长按卡片保存图片</div>
+    </div></div>`;
+  document.body.appendChild(d);
+  const card = document.getElementById('cardInner');
+  let pressTimer;
+  card.addEventListener('touchstart', e => {
+    pressTimer = setTimeout(() => saveCardAsImage(card), 600);
+  });
+  card.addEventListener('touchend', () => clearTimeout(pressTimer));
+  card.addEventListener('mousedown', e => {
+    pressTimer = setTimeout(() => saveCardAsImage(card), 600);
+  });
+  card.addEventListener('mouseup', () => clearTimeout(pressTimer));
+  closeSheet();
+}
+function saveCardAsImage(el){
+  // 简单用 html2canvas 思路的替代：提示 + 尝试截图
+  alert('长按已触发。正式版会生成图片下载。\n当前预览可手动截图保存。');
+  // 实际项目可引入 html2canvas
+}
   if(!selText) return;
   const p=posts.find(x=>x.id===curId);
   const d=document.createElement('div');
