@@ -365,7 +365,14 @@ footer .disclaimer {
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL = 'https://qldfmpfcoxxwgctlfeua.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_nemB3Smiq4Bmtm_6SpIvig_T-9BJhvT';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ... rest of script will be updated step by step
+
 let posts = JSON.parse(localStorage.getItem('miaobo_posts') || 'null') || [
   {
     id: 1,
@@ -394,21 +401,30 @@ function isAdmin() {
   return currentUser && admins.includes(currentUser);
 }
 
-function renderList() {
-  const sorted = [...posts].sort((a, b) => {
-    if (currentSort === 'oldest') return new Date(a.date) - new Date(b.date);
-    return new Date(b.date) - new Date(a.date);
-  });
+async function renderList() {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .order('published_at', { ascending: currentSort === 'oldest' });
+
+  if (error) {
+    console.error(error);
+    document.getElementById('main').innerHTML = '<p>加载文章失败</p>';
+    return;
+  }
+
+  const sorted = data || [];
   document.getElementById('main').innerHTML = `
     <div class="sort-bar">
       <button class="${currentSort==='oldest'?'active':''}" onclick="setSort('oldest')">最早优先</button>
       <button class="${currentSort==='newest'?'active':''}" onclick="setSort('newest')">最新优先</button>
     </div>
+    ${sorted.length === 0 ? '<p style="text-align:center;color:var(--text-light);">还没有文章</p>' : ''}
     ${sorted.map(p => `
       <div class="article-card" onclick="showArticle(${p.id})">
-        <div class="date">${p.date}</div>
+        <div class="date">${new Date(p.published_at).toLocaleString('zh-CN')}</div>
         <h2>${p.title}</h2>
-        <div class="excerpt">${p.excerpt}</div>
+        <div class="excerpt">${p.excerpt || ''}</div>
       </div>
     `).join('')}
   `;
@@ -573,17 +589,28 @@ function saveUsers(users) {
   localStorage.setItem('miaobo_users', JSON.stringify(users));
 }
 
-function doAuth() {
+async function doAuth() {
   const u = document.getElementById('username').value.trim();
   const p = document.getElementById('password').value;
   if (!u || !p) return alert('请输入用户名和密码');
 
-  const users = getUsers();
+  const email = u + '@miaobo.local';
 
   if (isRegisterMode) {
-    if (users[u]) return alert('用户名已存在');
-    users[u] = p;
-    saveUsers(users);
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: p,
+      options: { data: { username: u } }
+    });
+    if (error) return alert(error.message);
+    // 写入 profiles
+    if (data.user) {
+      await supabase.from('profiles').insert({
+        id: data.user.id,
+        username: u,
+        is_admin: ['Kokoro', '林科森'].includes(u)
+      });
+    }
     alert('注册成功，请登录');
     switchToLogin();
     document.getElementById('username').value = u;
@@ -591,7 +618,11 @@ function doAuth() {
   }
 
   // 登录
-  if (!users[u] || users[u] !== p) return alert('用户名或密码错误');
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password: p
+  });
+  if (error) return alert('用户名或密码错误');
   currentUser = u;
   localStorage.setItem('miaobo_user', u);
   renderList();
@@ -606,7 +637,8 @@ function updateAuth() {
   }
 }
 
-function logout() {
+async function logout() {
+  await supabase.auth.signOut();
   currentUser = null;
   localStorage.removeItem('miaobo_user');
   renderList();
