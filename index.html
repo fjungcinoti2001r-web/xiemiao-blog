@@ -222,7 +222,7 @@ input[type=file]::file-selector-button{font:inherit;border:0;border-radius:999px
 </header>
 <div id="status" role="status" aria-live="polite"></div><main id="main"><p style="text-align:center;padding:40px;color:var(--light)">加载中...</p></main>
 <footer>
-  <div>制作：Kokoro | 林科森</div>
+  <div>制作：Kokoro | 热带鱼 | 林科森</div>
   <div class="dis">◆ 本站为谢苗粉丝向博客考古站，非官方、非商业、不盈利。内容由粉丝整理分享，著作权归谢苗所有。请勿发布无关或引起不适的内容，自觉遵守网络规范。用户需对自身发言负责，本站有权删除不当内容。如有侵权或不妥，请联系我们删除。感谢配合。 ◆</div>
 </footer>
 
@@ -313,7 +313,7 @@ async function copySelectedText(){const text=selText;try{if(navigator.clipboard?
 function paintHighlights(){const root=$('ac'),walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];let n,offset=0;while(n=walker.nextNode()){nodes.push({n,start:offset});offset+=n.length}const text=root.textContent;const spans=highlights.map(h=>{const saved=h.start_offset;const start=Number.isInteger(saved)&&text.slice(saved,saved+h.selected_text.length)===h.selected_text?saved:text.indexOf(h.selected_text);return {h,start,end:start+h.selected_text.length}}).filter(x=>x.start>=0);for(const {n,start} of nodes){const cuts=new Set([0,n.length]);for(const s of spans){if(s.start<start+n.length&&s.end>start){cuts.add(Math.max(0,s.start-start));cuts.add(Math.min(n.length,s.end-start))}}const points=[...cuts].sort((a,b)=>a-b),frag=document.createDocumentFragment();for(let i=0;i<points.length-1;i++){const a=points[i],b=points[i+1],s=spans.find(x=>x.start<=start+a&&x.end>=start+b);const el=s?document.createElement('mark'):document.createTextNode(n.data.slice(a,b));if(s)el.textContent=n.data.slice(a,b);if(s){el.className='highlight';el.setAttribute('aria-label','查看这段文字的评论');let downAt=0,moved=false;el.onpointerdown=()=>{downAt=Date.now();moved=false};el.onpointermove=()=>{moved=true};el.onclick=()=>{if(moved||Date.now()-downAt>300||hasArticleSelection())return;showHLComments(s.h.selected_text)}}frag.append(el)}n.replaceWith(frag)}}
 function needAuth(){if(session)return true;notice('请先登录账号');return false}
 let writing=false;
-async function write(action){if(writing||!needAuth())return;writing=true;try{await action();notice('已保存到');await showArticle(curId)}catch(e){notice('保存失败：'+e.message+'。草稿保留在本机，可重试')}finally{writing=false}}
+async function write(action){if(writing||!needAuth())return;writing=true;try{await action();notice('已保存');await showArticle(curId)}catch(e){notice('保存失败：'+e.message+'。草稿保留在本机，可重试')}finally{writing=false}}
 function addC(parent=null,text=null){const content=text??$('nc').value.trim();if(!content)return;write(async()=>{await query(sb.from('comments').insert({post_id:curId,user_id:session.user.id,content,parent_id:parent}).select().single());store('mb_draft_'+curId,JSON.stringify(''))})}
 function replyC(id){if(!needAuth())return;const c=comments.find(c=>same(c.id,id)),t=prompt('回复 '+name(c.user_id)+' · '+(comments.indexOf(c)+1)+'楼\n“'+c.content.slice(0,80)+'”\n\n你的回复：');if(t?.trim()){$('nc').value=t;store('mb_draft_'+curId,JSON.stringify(t));addC(id,t.trim())}}
 function addHighlight(){const comment=$('hlInput').value.trim();if(!selText)return;if(!comment)return notice('请先填写你的评论');store('mb_highlight_draft',JSON.stringify({postId:curId,text:selText,comment,start:selectionStart}));write(async()=>{await query(sb.from('highlights').insert({post_id:curId,user_id:session.user.id,selected_text:selText,comment,start_offset:selectionStart}).select().single());store('mb_highlight_draft','null');closeSheet()})}
